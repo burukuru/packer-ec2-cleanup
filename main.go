@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -12,12 +13,14 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-func getInstanceIds(r *ec2.DescribeInstancesOutput) []*string {
+func getInstanceIds(r *ec2.DescribeInstancesOutput, instanceAge time.Duration) []*string {
 	instances := []*string{}
 	for i := 0; i < len(r.Reservations); i++ {
 		id := *r.Reservations[i].Instances[0].InstanceId
-		instances = append(instances, aws.String(id))
-
+		launchTime := *r.Reservations[i].Instances[0].LaunchTime
+		if time.Now().UTC().Sub(launchTime).Minutes() > instanceAge.Minutes() {
+			instances = append(instances, aws.String(id))
+		}
 	}
 	return instances
 }
@@ -42,7 +45,7 @@ func createClient() *ec2.EC2 {
 	return ec2.New(sess)
 }
 
-func describeInstances(ec2client *ec2.EC2, tagkv string) ([]*string, error) {
+func describeInstances(ec2client *ec2.EC2, tagkv string, instanceAge time.Duration) ([]*string, error) {
 	t := strings.Split(tagkv, "=")
 	tagkey := strings.Join([]string{"tag:", t[0]}, "")
 	tagvalue := t[1]
@@ -68,7 +71,7 @@ func describeInstances(ec2client *ec2.EC2, tagkv string) ([]*string, error) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	instanceIds := getInstanceIds(reservations)
+	instanceIds := getInstanceIds(reservations, instanceAge)
 	printRunningInstances(instanceIds, tagkv)
 
 	return instanceIds, err
@@ -95,6 +98,11 @@ func main() {
 			Value: "Name=Packer Builder",
 			Usage: "Filter tag of EC2 instances to terminate in format: `TagName=TagValue`",
 		},
+		&cli.StringFlag{
+			Name:  "olderthan",
+			Value: "60m",
+			Usage: "Minimum age of instance that will be terminated, in minutes",
+		},
 	}
 
 	app := &cli.App{
@@ -107,7 +115,11 @@ func main() {
 				Usage:   "List EC2 instances in selected region",
 				Flags:   cliFlags,
 				Action: func(c *cli.Context) error {
-					_, err := describeInstances(ec2client, c.String("tag"))
+					m, err := time.ParseDuration(c.String("olderthan"))
+					if err != nil {
+						log.Fatal(err)
+					}
+					_, err = describeInstances(ec2client, c.String("tag"), m)
 					if err != nil {
 						log.Fatal(err)
 					}
@@ -120,7 +132,11 @@ func main() {
 				Usage:   "Terminate EC2 instances",
 				Flags:   cliFlags,
 				Action: func(c *cli.Context) error {
-					instanceIds, err := describeInstances(ec2client, c.String("tag"))
+					m, err := time.ParseDuration(c.String("olderthan"))
+					if err != nil {
+						log.Fatal(err)
+					}
+					instanceIds, err := describeInstances(ec2client, c.String("tag"), m)
 					if err != nil {
 						log.Fatal(err)
 					}
