@@ -19,6 +19,4 @@ Terminate instance older than 30 minutes:
 ```
 
 # TODO
-- Go program to delete EC2 instance
-  - delete associated SSH keys
 - Terraform module to deploy to AWS Lambda

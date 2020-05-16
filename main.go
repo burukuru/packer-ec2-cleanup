@@ -13,16 +13,21 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-func getInstanceIds(r *ec2.DescribeInstancesOutput, instanceAge time.Duration) []*string {
+func getInstanceData(r *ec2.DescribeInstancesOutput, instanceAge time.Duration) [][]*string {
 	instances := []*string{}
+	keynames := []*string{}
 	for i := 0; i < len(r.Reservations); i++ {
-		id := *r.Reservations[i].Instances[0].InstanceId
 		launchTime := *r.Reservations[i].Instances[0].LaunchTime
 		if time.Now().UTC().Sub(launchTime).Minutes() > instanceAge.Minutes() {
-			instances = append(instances, aws.String(id))
+			instances = append(instances, aws.String(*r.Reservations[i].Instances[0].InstanceId))
+			// Check if instance has SSH key
+			if r.Reservations[i].Instances[0].KeyName != nil &&
+				len(*r.Reservations[i].Instances[0].KeyName) > 0 {
+				keynames = append(keynames, aws.String(*r.Reservations[i].Instances[0].KeyName))
+			}
 		}
 	}
-	return instances
+	return [][]*string{instances, keynames}
 }
 
 func printRunningInstances(s []*string, tagkv string) {
@@ -45,7 +50,7 @@ func createClient() *ec2.EC2 {
 	return ec2.New(sess)
 }
 
-func describeInstances(ec2client *ec2.EC2, tagkv string, instanceAge time.Duration) ([]*string, error) {
+func describeInstances(ec2client *ec2.EC2, tagkv string, instanceAge time.Duration) ([][]*string, error) {
 	t := strings.Split(tagkv, "=")
 	tagkey := strings.Join([]string{"tag:", t[0]}, "")
 	tagvalue := t[1]
@@ -71,10 +76,22 @@ func describeInstances(ec2client *ec2.EC2, tagkv string, instanceAge time.Durati
 	if err != nil {
 		log.Fatal(err)
 	}
-	instanceIds := getInstanceIds(reservations, instanceAge)
-	printRunningInstances(instanceIds, tagkv)
+	instanceData := getInstanceData(reservations, instanceAge)
+	printRunningInstances(instanceData[0], tagkv)
 
-	return instanceIds, err
+	return instanceData, err
+}
+
+func deleteKeyPair(ec2client *ec2.EC2, KeyName []*string) {
+	fmt.Println("Deleting SSH key pair: ", aws.StringValueSlice(KeyName))
+	deleteKeypairInput := &ec2.DeleteKeyPairInput{
+		KeyName: KeyName[0],
+	}
+	_, err := ec2client.DeleteKeyPair(deleteKeypairInput)
+	if err != nil {
+		fmt.Println("Error deleting keypair", err)
+		panic(err)
+	}
 }
 
 func terminateinstances(ec2client *ec2.EC2, instanceIds []*string) {
@@ -136,14 +153,18 @@ func main() {
 					if err != nil {
 						log.Fatal(err)
 					}
-					instanceIds, err := describeInstances(ec2client, c.String("tag"), m)
+					instanceData, err := describeInstances(ec2client, c.String("tag"), m)
 					if err != nil {
 						log.Fatal(err)
 					}
-					if len(instanceIds) < 1 {
-						log.Fatal("No running instances with specified tag \"", c.String("tag"), "\" to terminate.")
+					if len(instanceData[0]) > 0 {
+						terminateinstances(ec2client, instanceData[0])
+						if len(instanceData[1]) > 0 {
+							deleteKeyPair(ec2client, instanceData[1])
+						}
+					} else {
+						log.Print("No running instances with specified tag \"", c.String("tag"), "\" to terminate.")
 					}
-					terminateinstances(ec2client, instanceIds)
 					return err
 				},
 			},
