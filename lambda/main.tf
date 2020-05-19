@@ -9,17 +9,10 @@ variable "terminate_tag" {
 }
 
 variable "olderthan" {
-  type = string
-  # default = "60m"
-  default = "0s"
+  type    = string
+  default = "60m"
+  # default = "0s"
 }
-
-# environment {
-#   variables = {
-#     Tag       = var.terminate_tag,
-#     Olderthan = var.olderthan
-#   }
-# }
 
 resource "aws_lambda_function" "pec" {
   function_name = var.lambda_function_name
@@ -30,7 +23,16 @@ resource "aws_lambda_function" "pec" {
   source_code_hash = filebase64sha256("lambda.zip")
 
   runtime = "go1.x"
+
+  environment {
+    variables = {
+      Tag       = var.terminate_tag,
+      Olderthan = var.olderthan
+    }
+  }
+
 }
+
 resource "aws_iam_role" "iam_for_lambda" {
   name = "iam_for_lambda"
 
@@ -55,9 +57,8 @@ data "aws_iam_policy" "AmazonEC2FullAccess" {
   arn = "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
 }
 
-resource "aws_iam_policy_attachment" "allow_ec2_fullaccess" {
-  name       = "allow_ec2_fullaccess"
-  roles      = [aws_iam_role.iam_for_lambda.name]
+resource "aws_iam_role_policy_attachment" "allow_ec2_fullaccess" {
+  role       = aws_iam_role.iam_for_lambda.name
   policy_arn = data.aws_iam_policy.AmazonEC2FullAccess.arn
 
 }
