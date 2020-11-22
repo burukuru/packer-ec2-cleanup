@@ -17,6 +17,3 @@ Terminate instance older than 30 minutes:
 ```
 ./packer-ec2-cleanup ti --olderthan 30m
 ```
-
-# TODO
-- Terraform module to deploy to AWS Lambda

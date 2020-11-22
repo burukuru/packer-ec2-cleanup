@@ -1,7 +1,7 @@
 # Usage
 
-go build
-zip lambda.zip lambda
+go build   
+zip lambda.zip lambda  
 terraform apply
 
 # Overview
